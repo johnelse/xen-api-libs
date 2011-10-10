@@ -42,7 +42,8 @@ STDEXT_OBJS = \
 	either \
 	lazyList \
 	extentlistSet \
-	set_test
+	set_test \
+	mvar
 
 INTF = $(foreach obj, $(STDEXT_OBJS),$(obj).cmi)
 LIBS = stdext.cma stdext.cmxa
@@ -100,6 +101,9 @@ forkhelpers.cmo: forkhelpers.ml forkhelpers.cmi
 filenameext.cmo: filenameext.ml filenameext.cmi
 	$(OCAMLC) -c -I ../uuid -o $@ $<
 
+mvar.cmo: mvar.ml mvar.cmi
+	$(OCAMLC) -thread -c -o $@ $<
+
 %.cmo: %.ml %.cmi
 	$(OCAMLC) -c -o $@ $<
 
@@ -111,6 +115,9 @@ forkhelpers.cmi: forkhelpers.mli
 
 filenameext.cmi: filenameext.mli
 	$(OCAMLC) -c -I ../uuid -o $@ $<
+
+mvar.cmi: mvar.mli
+	$(OCAMLC) -thread -c -o $@ $<
 
 fe.cmi: fe.cmo
 	$(OCAMLC) $(RPCLIGHTFLAGS) -c -o $@ $<
@@ -132,6 +139,9 @@ forkhelpers.cmx: forkhelpers.ml forkhelpers.cmi
 
 filenameext.cmx: filenameext.ml filenameext.cmi
 	$(OCAMLOPT) $(OCAMLOPTFLAGS) -thread -c -I ../uuid -o $@ $<
+
+mvar.cmx: mvar.ml mvar.cmi
+	$(OCAMLOPT) -thread -c -o $@ $<
 
 %.cmx: %.ml %.cmi
 	$(OCAMLOPT) $(OCAMLOPTFLAGS) -I ../uuid -c -o $@ $<
