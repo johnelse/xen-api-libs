@@ -64,3 +64,79 @@ module Xsrawext = struct
   let set_target domid target con =
     ack (sync (Queueopext.set_target domid target) (unsafe_con con))
 end
+
+module Gntcommon = struct
+	type contents = (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
+	type mapping = contents
+	let contents x = x
+end
+
+module Gntshr = struct
+	type handle
+
+	type share = {
+		references: int32 list;
+		mapping: Gntcommon.mapping;
+	}
+
+	external interface_open : unit -> handle = "stub_xenctrlext_gntshr_open"
+	external interface_close : handle -> unit = "stub_xenctrlext_gntshr_close"
+
+	external share_pages : handle -> int32 -> int -> bool -> share =
+		"stub_xenctrlext_gntshr_share_pages"
+	external munmap : handle -> share -> unit =
+		"stub_xenctrlext_gntshr_munmap"
+end
+
+module Gnttab = struct
+	type handle
+
+	external interface_open: unit -> handle = "stub_xc_gnttab_open"
+
+	external interface_close: handle -> unit = "stub_xc_gnttab_close"
+
+	type grant = {
+		domid: int32;
+		reference: int32;
+	}
+
+	external map_exn: handle -> int32 -> int32 -> int -> Gntcommon.mapping =
+		"stub_xc_gnttab_map_grant_ref"
+	external mapv_exn: handle -> int32 array -> int -> Gntcommon.mapping =
+		"stub_xc_gnttab_map_grant_refs"
+	external unmap_exn: handle -> Gntcommon.mapping -> unit =
+		"stub_xc_gnttab_unmap"
+
+	(* Look up the values of PROT_{READ,WRITE} from the C headers. *)
+	type perm = PROT_READ | PROT_WRITE
+	external get_perm: perm -> int =
+			"stub_xc_gnttab_get_perm"
+	let _PROT_READ = get_perm PROT_READ
+	let _PROT_WRITE = get_perm PROT_WRITE
+
+	type permission = RO | RW
+
+	let int_of_permission = function
+	| RO -> _PROT_READ
+	| RW -> _PROT_READ lor _PROT_WRITE
+
+	let map h g p =
+		try
+			Some (map_exn h g.domid g.reference (int_of_permission p))
+		with _ ->
+			None
+
+	let mapv h gs p =
+		try
+			let count = List.length gs in
+			let grant_array = Array.create (count * 2) 0l in
+			let (_: int) = List.fold_left (fun i g ->
+				grant_array.(i * 2 + 0) <- g.domid;
+				grant_array.(i * 2 + 1) <- g.reference;
+				i + 1
+			) 0 gs in
+			Some (mapv_exn h grant_array (int_of_permission p))
+		with _ ->
+			None
+end
+

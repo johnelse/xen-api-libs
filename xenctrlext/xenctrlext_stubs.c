@@ -20,6 +20,8 @@
 #include <unistd.h>
 #include <xenctrl.h>
 
+#include <sys/mman.h>
+
 #include <caml/mlvalues.h>
 #include <caml/memory.h>
 #include <caml/alloc.h>
@@ -27,6 +29,7 @@
 #include <caml/fail.h>
 #include <caml/signals.h>
 #include <caml/callback.h>
+#include <caml/bigarray.h>
 
 #define _H(__h) ((xc_interface *)(__h))
 #define _D(__d) ((uint32_t)Int_val(__d))
@@ -244,6 +247,205 @@ CAMLprim value stub_xenctrlext_domain_set_target(value xch,
 	CAMLreturn(Val_unit);
 }
 
+/* Common grant table code. */
+#define XC_GNTTAB_BIGARRAY (CAML_BA_UINT8 | CAML_BA_C_LAYOUT | CAML_BA_EXTERNAL)
+
+/* xc_gntshr_* bindings */
+#define _GS(__gs) ((xc_gntshr *)(__gs))
+
+CAMLprim value stub_xenctrlext_gntshr_open(void)
+{
+	CAMLparam0();
+	xc_gntshr *xgh;
+
+	xgh = xc_gntshr_open(NULL, 0);
+	if (NULL == xgh)
+		failwith_xc(NULL);
+	CAMLreturn((value)xgh);
+}
+
+CAMLprim value stub_xenctrlext_gntshr_close(value xgh)
+{
+	CAMLparam1(xgh);
+
+	xc_gntshr_close(_GS(xgh));
+
+	CAMLreturn(Val_unit);
+}
+
+CAMLprim value stub_xenctrlext_gntshr_share_pages(value xgh, value domid, value count, value writeable) {
+	CAMLparam4(xgh, domid, count, writeable);
+	CAMLlocal4(result, ml_refs, ml_refs_cons, ml_map);
+	void *map;
+	uint32_t *refs;
+	uint32_t c_domid;
+	int c_count;
+	int i;
+
+	c_count = Int_val(count);
+	c_domid = Int32_val(domid);
+	result = caml_alloc(2, 0);
+	refs = (uint32_t *) malloc(c_count * sizeof(uint32_t));
+
+	map = xc_gntshr_share_pages(_GS(xgh), c_domid, c_count, refs, Bool_val(writeable));
+
+	if(NULL == map) {
+		free(refs);
+		failwith_xc(_GS(xgh));
+	}
+
+	// Construct the list of grant references.
+	ml_refs = Val_emptylist;
+	for(i = c_count - 1; i >= 0; i--) {
+		ml_refs_cons = caml_alloc(2, 0);
+
+		Store_field(ml_refs_cons, 0, caml_copy_int32(refs[i]));
+		Store_field(ml_refs_cons, 1, ml_refs);
+
+		ml_refs = ml_refs_cons;
+	}
+
+	ml_map = caml_ba_alloc_dims(XC_GNTTAB_BIGARRAY, 1,
+		map, c_count << XC_PAGE_SHIFT);
+
+	Store_field(result, 0, ml_refs);
+	Store_field(result, 1, ml_map);
+
+	free(refs);
+	CAMLreturn(result);
+}
+
+CAMLprim value stub_xenctrlext_gntshr_munmap(value xgh, value share) {
+	CAMLparam2(xgh, share);
+	CAMLlocal1(ml_map);
+
+	ml_map = Field(share, 1);
+
+	int size = Caml_ba_array_val(ml_map)->dim[0];
+	int pages = size >> XC_PAGE_SHIFT;
+	int result = xc_gntshr_munmap(_GS(xgh), Caml_ba_data_val(ml_map), pages);
+	if(result != 0)
+		failwith_xc(_GS(xgh));
+
+	CAMLreturn(Val_unit);
+}
+
+/* xc_gnttab_* bindings */
+#define _GT(__g) ((xc_gnttab *)(__g))
+CAMLprim value stub_xc_gnttab_open(void)
+{
+	CAMLparam0();
+	xc_gnttab *xgh;
+	xgh = xc_gnttab_open(NULL, 0);
+	if (xgh == NULL)
+		caml_failwith("Failed to open interface");
+	CAMLreturn((value)xgh);
+}
+
+CAMLprim value stub_xc_gnttab_close(value xgh)
+{
+	CAMLparam1(xgh);
+
+	xc_gnttab_close(_GT(xgh));
+
+	CAMLreturn(Val_unit);
+}
+
+CAMLprim value stub_xc_gnttab_get_perm(value perm)
+{
+	CAMLparam1(perm);
+	int result;
+	switch (Int_val(perm)){
+	case 0:
+		result = PROT_READ;
+		break;
+	case 1:
+		result = PROT_WRITE;
+		break;
+	default:
+		result = PROT_NONE;
+		break;
+	}
+	CAMLreturn(Val_int(result));
+}
+
+#define XC_GNTTAB_BIGARRAY (CAML_BA_UINT8 | CAML_BA_C_LAYOUT | CAML_BA_EXTERNAL)
+
+CAMLprim value stub_xc_gnttab_map_grant_ref(
+	value xgh,
+	value domid,
+	value reference,
+	value perms
+	)
+{
+	CAMLparam4(xgh, domid, reference, perms);
+	CAMLlocal1(contents);
+	uint32_t c_domid, c_reference;
+	int c_perm;
+
+	c_domid = Int32_val(domid);
+	c_reference = Int32_val(reference);
+	c_perm = Int_val(perms);
+
+	void *map = xc_gnttab_map_grant_ref(_GT(xgh),
+		c_domid, c_reference, c_perm);
+
+	if(map==NULL) {
+		caml_failwith("Failed to map grant ref");
+	}
+
+	contents = caml_ba_alloc_dims(XC_GNTTAB_BIGARRAY, 1,
+		map, 1 << XC_PAGE_SHIFT);
+	CAMLreturn(contents);
+}
+
+CAMLprim value stub_xc_gnttab_map_grant_refs(
+	value xgh,
+	value array,
+	value perms)
+{
+	CAMLparam3(xgh, array, perms);
+	CAMLlocal3(domid, reference, contents);
+	int c_perms = Int_val(perms);
+	int count = Wosize_val(array) / 2;
+	uint32_t domids[count];
+	uint32_t refs[count];
+	int i;
+
+	for (i = 0; i < count; i++){
+		domids[i] = Int32_val(Field(array, i * 2 + 0));
+		refs[i] = Int32_val(Field(array, i * 2 + 1));
+	}
+	void *map = xc_gnttab_map_grant_refs(
+		_GT(xgh),
+		count,
+		domids,
+		refs,
+		c_perms
+	);
+
+	if(map==NULL) {
+		caml_failwith("Failed to map grant ref");
+	}
+
+	contents = caml_ba_alloc_dims(XC_GNTTAB_BIGARRAY, 1,
+		map, 1 << XC_PAGE_SHIFT);
+	CAMLreturn(contents);
+}
+
+CAMLprim value stub_xc_gnttab_unmap(value xgh, value array) 
+{
+	CAMLparam2(xgh, array);
+
+	int size = Caml_ba_array_val(array)->dim[0];
+	int pages = size >> XC_PAGE_SHIFT;
+	int result = xc_gnttab_munmap(_GT(xgh), Caml_ba_data_val(array), pages);
+	if(result!=0) {
+		caml_failwith("Failed to unmap grant");
+	}
+
+	CAMLreturn(Val_unit);
+}
 
 /* 
 * Local variables: 
