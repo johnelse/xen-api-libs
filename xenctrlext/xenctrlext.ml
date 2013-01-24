@@ -66,9 +66,38 @@ module Xsrawext = struct
 end
 
 module Gntcommon = struct
+	open Bigarray
+
 	type contents = (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
 	type mapping = contents
 	let contents x = x
+
+	external unsafe_blit_bigstring_to_bigstring : contents -> int -> contents -> int -> int -> unit = "caml_blit_bigstring_to_bigstring" "noalloc"
+
+	external unsafe_blit_string_to_bigstring : string -> int -> contents -> int -> int -> unit = "caml_blit_string_to_bigstring" "noalloc"
+
+	external unsafe_blit_bigstring_to_string : contents -> int -> string -> int -> int -> unit = "caml_blit_bigstring_to_string" "noalloc"
+
+	let copy src srcoff len =
+		if (Array1.dim src) - srcoff < len then raise (Failure "copy");
+		let s = String.create len in
+		unsafe_blit_bigstring_to_string src srcoff s 0 len;
+		s
+
+	let blit src srcoff dst dstoff len =
+		if (Array1.dim src) - srcoff < len then raise (Failure "blit");
+		if (Array1.dim dst) - dstoff < len then raise (Failure "blitdst");
+		unsafe_blit_bigstring_to_bigstring src srcoff dst dstoff len
+
+	let blit_from_string src srcoff dst dstoff len =
+		if String.length src - srcoff < len then raise (Failure "blit_from_string");
+		if (Array1.dim dst) - dstoff < len then raise (Failure "blit_from_string dst");
+		unsafe_blit_string_to_bigstring src srcoff dst dstoff len
+
+	let blit_to_string src srcoff dst dstoff len =
+		if (Array1.dim src) - srcoff < len then raise (Failure "blit_to_string");
+		if String.length dst - dstoff < len then raise (Failure "blit_to_string dst");
+		unsafe_blit_bigstring_to_string src srcoff dst dstoff len
 end
 
 module Gntshr = struct

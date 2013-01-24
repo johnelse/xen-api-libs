@@ -59,6 +59,14 @@ module Gntcommon : sig
 
 	val contents: mapping -> contents
 	(** Expose the contents of a mapped memory region as a bigarray *)
+
+	val copy: contents -> int -> int -> string
+
+	val blit: contents -> int -> contents -> int -> int -> unit
+
+	val blit_from_string: string -> int -> contents -> int -> int -> unit
+
+	val blit_to_string: contents -> int -> string -> int -> int -> unit
 end
 
 module Gntshr : sig

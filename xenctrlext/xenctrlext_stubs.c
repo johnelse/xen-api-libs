@@ -250,6 +250,33 @@ CAMLprim value stub_xenctrlext_domain_set_target(value xch,
 /* Common grant table code. */
 #define XC_GNTTAB_BIGARRAY (CAML_BA_UINT8 | CAML_BA_C_LAYOUT | CAML_BA_EXTERNAL)
 
+CAMLprim value
+caml_blit_bigstring_to_string(value val_buf1, value val_ofs1, value val_buf2, value val_ofs2, value val_len)
+{
+	memcpy(String_val(val_buf2) + Long_val(val_ofs2),
+		(char*)Caml_ba_data_val(val_buf1) + Long_val(val_ofs1),
+		Long_val(val_len));
+	return Val_unit;
+}
+
+CAMLprim value
+caml_blit_string_to_bigstring(value val_buf1, value val_ofs1, value val_buf2, value val_ofs2, value val_len)
+{
+	memcpy((char*)Caml_ba_data_val(val_buf2) + Long_val(val_ofs2),
+		String_val(val_buf1) + Long_val(val_ofs1),
+		Long_val(val_len));
+	return Val_unit;
+}
+
+CAMLprim value
+caml_blit_bigstring_to_bigstring(value val_buf1, value val_ofs1, value val_buf2, value val_ofs2, value val_len)
+{
+	memmove((char*)Caml_ba_data_val(val_buf2) + Long_val(val_ofs2),
+		(char*)Caml_ba_data_val(val_buf1) + Long_val(val_ofs1),
+		Long_val(val_len));
+	return Val_unit;
+}
+
 /* xc_gntshr_* bindings */
 #define _GS(__gs) ((xc_gntshr *)(__gs))
 
